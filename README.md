@@ -8,7 +8,7 @@
 ### 1. Клонирование и переход в каталог
 
 ```bash
-git clone <repo-url> advanced-file-manager
+git clone https://github.com/NatS-21/advanced-file-manager.git
 cd advanced-file-manager
 ```
 
