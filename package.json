@@ -1,0 +1,33 @@
+{
+  "name": "advanced-file-manager",
+  "private": true,
+  "packageManager": "yarn@1.22.22",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "shared:build": "yarn workspace @afm/shared build",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:create": "node apps/api/scripts/createDb.js",
+    "db:status": "node apps/api/scripts/migrate.js status",
+    "db:migrate": "node apps/api/scripts/migrate.js up",
+    "api:dev": "yarn workspace @afm/api dev",
+    "web:dev": "yarn workspace @afm/web dev",
+    "dev": "yarn shared:build && concurrently \"yarn api:dev\" \"yarn web:dev\"",
+    "dev:local": "yarn shared:build && concurrently \"PORT=3001 yarn api:dev\" \"VITE_API_TARGET=http://localhost:3001 yarn web:dev\"",
+    "build": "yarn workspace @afm/shared build && yarn workspace @afm/api build && yarn workspace @afm/web build",
+    "api:start": "yarn workspace @afm/api start"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
+
+
+
+
