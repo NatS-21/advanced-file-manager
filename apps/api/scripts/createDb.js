@@ -1,12 +1,9 @@
 #!/usr/bin/env node
-// Create the target database if it does not exist.
-// Usage: node apps/api/scripts/createDb.js
 
 const fs = require('fs');
 const path = require('path');
 const { Client } = require('pg');
 
-// Minimal .env loader (no dependency on dotenv) – keep in sync with migrate.js
 function loadEnv() {
   const root = path.resolve(__dirname, '../../..');
   const envPath = path.join(root, '.env');
@@ -35,7 +32,6 @@ function buildConnParts() {
 }
 
 function safeDbIdent(name) {
-  // Restrict to common safe identifiers to avoid SQL injection in CREATE DATABASE.
   if (!/^[A-Za-z0-9_]+$/.test(name)) {
     throw new Error(
       `Unsafe POSTGRES_DB value "${name}". Use only letters, digits, underscore (e.g. advanced_file_manager).`
@@ -47,8 +43,6 @@ function safeDbIdent(name) {
 async function main() {
   loadEnv();
 
-  // If DATABASE_URL is explicitly set, we assume user manages DB externally.
-  // For local dev convenience we support POSTGRES_*.
   const parts = buildConnParts();
   const adminDb = process.env.POSTGRES_ADMIN_DB || 'postgres';
 

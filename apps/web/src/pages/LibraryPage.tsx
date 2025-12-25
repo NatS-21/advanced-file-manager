@@ -12,7 +12,7 @@ interface DriveFolder {
 }
 
 interface DriveFile {
-  id: number; // assetId
+  id: number;
   fileId: number | null;
   type: 'image' | 'video' | 'audio' | 'doc';
   name: string | null;
@@ -49,7 +49,7 @@ interface UploadItem {
   id: string;
   name: string;
   sizeBytes: number;
-  progress: number; // 0..100
+  progress: number;
   state: UploadState;
   assetId?: number;
   fileId?: number;
@@ -84,13 +84,11 @@ export function LibraryPage() {
 
   const inSearchMode = debouncedQ.trim() !== '';
 
-  // sync if URL query changes from outside (e.g. Saved searches page)
   useEffect(() => {
     setQ(initialQ);
     setDebouncedQ(initialQ);
   }, [initialQ]);
 
-  // live search: debounce query input and keep URL in sync
   useEffect(() => {
     const handle = window.setTimeout(() => {
       const nextQ = q.trim();
@@ -100,7 +98,6 @@ export function LibraryPage() {
       if (nextQ) next.set('q', nextQ);
       else next.delete('q');
 
-      // avoid extra history entries; keep URL shareable
       const currentQ = sp.get('q') ?? '';
       if (currentQ !== nextQ) {
         setSp(next, { replace: true });
@@ -108,7 +105,6 @@ export function LibraryPage() {
     }, 400);
 
     return () => window.clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
   const load = useCallback(async () => {
@@ -189,7 +185,6 @@ export function LibraryPage() {
       ...prev,
     ]);
 
-    // Upload sequentially to get clean per-file progress
     for (const it of batch) {
       setUploads((prev) => prev.map((x) => (x.id === it.id ? { ...x, state: 'uploading', progress: 0 } : x)));
 
@@ -238,7 +233,6 @@ export function LibraryPage() {
   }
 
   function submitSearch() {
-    // оставляем кнопку/Enter как "форсировать сразу" без ожидания debounce
     const nextQ = q.trim();
     setDebouncedQ(nextQ);
     const next = new URLSearchParams(sp);

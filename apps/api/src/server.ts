@@ -18,8 +18,6 @@ import { registerHealthRoutes } from './routes/health';
 export async function buildServer() {
   const app = Fastify({ logger: true });
 
-  // CORS: disable by default in production (same-origin via reverse proxy).
-  // Enable explicitly via CORS_ORIGIN="http://localhost:5173,http://localhost:8080"
   const corsOrigin = process.env.CORS_ORIGIN;
   const isProd = process.env.NODE_ENV === 'production';
   if (corsOrigin && corsOrigin.trim() !== '') {
@@ -42,7 +40,7 @@ export async function buildServer() {
   await app.register(rateLimit, { global: false, max: 120, timeWindow: '1 minute' });
   await app.register(multipart, {
     limits: {
-      fileSize: 1024 * 1024 * 200, // 200MB
+      fileSize: 1024 * 1024 * 200,
       files: 20,
     },
   });

@@ -28,7 +28,6 @@ export async function registerAssetRoutes(app: FastifyInstance) {
     return reply.send(rows[0]);
   });
 
-  // Increment "saved" counter
   app.post('/api/assets/:id/save', { preHandler: requireAuth }, async (req, reply) => {
     const id = Number((req.params as any).id);
     const teamId = req.auth!.teamId;
@@ -58,7 +57,6 @@ export async function registerAssetRoutes(app: FastifyInstance) {
     });
   });
 
-  // Rename / move asset
   app.patch('/api/assets/:id', { preHandler: requireAuth }, async (req, reply) => {
     const id = Number((req.params as any).id);
     const teamId = req.auth!.teamId;
@@ -102,7 +100,6 @@ export async function registerAssetRoutes(app: FastifyInstance) {
     return reply.send(rows[0]);
   });
 
-  // Move asset to trash (soft delete)
   app.delete('/api/assets/:id', { preHandler: requireAuth }, async (req, reply) => {
     const id = Number((req.params as any).id);
     const teamId = req.auth!.teamId;

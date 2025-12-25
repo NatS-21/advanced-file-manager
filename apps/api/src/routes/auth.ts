@@ -88,14 +88,12 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       );
       rows = res.rows as any[];
     } catch (e: any) {
-      // DB is not reachable (wrong host/port or Postgres not running).
       if (e?.code === 'ECONNREFUSED') {
         return reply.code(503).send({
           error:
             'Database is not reachable. Check that Postgres is running and POSTGRES_HOST/POSTGRES_PORT (or DATABASE_URL) are correct.',
         });
       }
-      // Common local-dev footgun: DB reachable, but migrations were not applied (tables missing).
       if (e?.code === '42P01') {
         return reply.code(503).send({
           error: 'Database schema is missing (migrations not applied). Run: yarn db:up && yarn db:migrate',

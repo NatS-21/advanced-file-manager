@@ -49,7 +49,6 @@ export function AnalyticsPage() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalCount = data?.totals.files ?? 0;

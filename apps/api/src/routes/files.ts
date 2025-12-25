@@ -27,10 +27,9 @@ function parseRange(rangeHeader: string | undefined, size: number): { start: num
   let start = startStr ? Number(startStr) : NaN;
   let end = endStr ? Number(endStr) : NaN;
 
-  if (Number.isNaN(start) && Number.isNaN(end)) return null;
-  if (Number.isNaN(start)) {
-    // suffix range: last N bytes
-    const suffix = end;
+    if (Number.isNaN(start) && Number.isNaN(end)) return null;
+    if (Number.isNaN(start)) {
+      const suffix = end;
     if (!Number.isFinite(suffix) || suffix <= 0) return null;
     start = Math.max(0, size - suffix);
     end = size - 1;
@@ -47,7 +46,6 @@ export async function registerFileRoutes(app: FastifyInstance) {
     const teamId = req.auth!.teamId;
     const ownerId = req.auth!.userId;
 
-    // @fastify/multipart provides req.parts()
     const mp: any = (req as any);
     if (typeof mp.parts !== 'function') return reply.code(500).send({ error: 'Загрузка файлов не настроена (multipart)' });
 
@@ -72,7 +70,6 @@ export async function registerFileRoutes(app: FastifyInstance) {
 
       if (part.type !== 'file') continue;
 
-      // Validate folder belongs to team
       if (folderId !== null) {
         const p = await pool.query(
           'SELECT id FROM folders WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL',
@@ -85,7 +82,6 @@ export async function registerFileRoutes(app: FastifyInstance) {
       const mimeType = String(part.mimetype || 'application/octet-stream');
       const type = inferAssetType(mimeType);
 
-      // 1) store file to disk (compute size + sha256)
       let stored: { objectKey: string; absolutePath: string; sizeBytes: number; sha256: string } | null = null;
       try {
         stored = await storeUploadToLocalFs({
@@ -97,7 +93,6 @@ export async function registerFileRoutes(app: FastifyInstance) {
         return reply.code(500).send({ error: `Не удалось сохранить файл: ${e?.message ?? String(e)}` });
       }
 
-      // 2) write DB rows
       try {
         const created = await withTransaction(async (client) => {
           const assetRes = await client.query<{ id: number }>(
@@ -126,10 +121,8 @@ export async function registerFileRoutes(app: FastifyInstance) {
           sizeBytes: stored.sizeBytes,
         });
 
-        // best-effort metadata extraction (async)
         void ingestAssetMetadata(created.assetId, stored.absolutePath).catch((e) => app.log.warn(e));
       } catch (e: any) {
-        // best-effort cleanup
         try {
           await fs.unlink(stored.absolutePath);
         } catch {}
@@ -159,7 +152,6 @@ export async function registerFileRoutes(app: FastifyInstance) {
     const r = rows[0] as any;
     if (!r || r.deleted_at) return reply.code(404).send({ error: 'Не найдено' });
 
-    // engagement: count download as view
     await pool.query(
       `INSERT INTO engagement (asset_id, views, last_viewed_at)
        VALUES ($1, 1, NOW())

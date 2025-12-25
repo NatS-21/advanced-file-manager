@@ -36,7 +36,6 @@ export async function registerSearchRoute(app: FastifyInstance) {
 
     const { joins, where, params } = buildWhere(filters);
 
-    // Always scope by team
     params.push(req.auth!.teamId);
     where.push(`a.team_id = $${params.length}`);
     where.push('a.deleted_at IS NULL');
@@ -45,8 +44,6 @@ export async function registerSearchRoute(app: FastifyInstance) {
     if (q && q.trim() !== '') {
       params.push(q.trim());
       qIdx = params.length;
-      // Drive-like: allow prefix search by filename (no need to type extension)
-      // Keep FTS for relevance, add prefix matching on title and title-without-extension.
       where.push(`(
         search_text @@ plainto_tsquery('simple', unaccent($${qIdx}))
         OR unaccent(COALESCE(a.title, '')) ILIKE unaccent($${qIdx}) || '%'
@@ -71,7 +68,6 @@ export async function registerSearchRoute(app: FastifyInstance) {
     const offset = (Math.max(1, page) - 1) * Math.max(1, perPage);
     const orderSql = buildSort(sort);
 
-    // relevance
     const relSql = qIdx ? `ts_rank_cd(search_text, plainto_tsquery('simple', unaccent($${qIdx})))` : '0';
 
     const baseSql = `

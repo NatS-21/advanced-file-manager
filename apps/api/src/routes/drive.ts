@@ -9,13 +9,11 @@ function parseOptionalId(value: unknown): number | null {
 }
 
 export async function registerDriveRoutes(app: FastifyInstance) {
-  // List folders/files inside a folder (null = root)
   app.get('/api/drive/list', { preHandler: requireAuth }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const q = (req.query ?? {}) as any;
     const folderId = parseOptionalId(q.folderId);
 
-    // breadcrumbs
     let breadcrumbs: Array<{ id: number; name: string }> = [];
     if (folderId) {
       const bc = await pool.query(
@@ -91,7 +89,6 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     const parentId = parseOptionalId(body.parentId);
     if (!name) return reply.code(400).send({ error: 'Введите название папки' });
 
-    // ensure parent belongs to team
     if (parentId) {
       const p = await pool.query(
         'SELECT id FROM folders WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL',
@@ -132,7 +129,6 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });
     if (name !== undefined && !name) return reply.code(400).send({ error: 'Некорректное имя' });
 
-    // ensure folder belongs to team
     const existing = await pool.query(
       'SELECT id, parent_id FROM folders WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL',
       [id, teamId]
@@ -191,7 +187,6 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     const id = Number((req.params as any).id);
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });
 
-    // soft-delete folder subtree + assets
     const res = await pool.query(
       `WITH RECURSIVE sub AS (
         SELECT id FROM folders WHERE id = $1 AND team_id = $2 AND deleted_at IS NULL

@@ -15,13 +15,11 @@ export async function ingestAssetMetadata(assetId: number, localPath: string): P
   try {
     md = await extractWithExiftool(localPath);
   } catch {
-    // exiftool may be missing or file may not have metadata; ignore for MVP
     return;
   }
   if (!md) return;
 
   await withTransaction(async (client) => {
-    // Update asset fields (do not overwrite title/filename)
     await client.query(
       `UPDATE assets
        SET
@@ -38,7 +36,6 @@ export async function ingestAssetMetadata(assetId: number, localPath: string): P
       [assetId, md.description ?? null, md.language ?? null, toTs(md.capturedAt), toTextArray(md.keywords)]
     );
 
-    // Media row (upsert)
     await client.query(
       `INSERT INTO asset_media (
          asset_id, width, height, orientation, color_space,
@@ -78,7 +75,6 @@ export async function ingestAssetMetadata(assetId: number, localPath: string): P
       ]
     );
 
-    // Sidecar JSON (upsert)
     await client.query(
       `INSERT INTO asset_exif_iptc_xmp (asset_id, exif, iptc, xmp)
        VALUES ($1,$2,$3,$4)

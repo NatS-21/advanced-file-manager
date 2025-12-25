@@ -11,13 +11,11 @@ function buildConnectionStringFromParts() {
   const host = process.env.POSTGRES_HOST || 'localhost';
   const port = process.env.POSTGRES_PORT || '5435';
   const db = process.env.POSTGRES_DB || 'advanced_file_manager';
-  // NB: encode only user/password; host/port/db should be plain.
   return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${db}`;
 }
 
 function getConnectionString(): string | undefined {
   const raw = process.env.DATABASE_URL;
-  // If DATABASE_URL missing OR contains unexpanded templates like ${POSTGRES_USER}, build from POSTGRES_*
   if (!raw || /\$\{[^}]+\}/.test(raw)) return buildConnectionStringFromParts();
   return raw;
 }

@@ -15,7 +15,6 @@ function getDbTargetSummary() {
         user: u.username ? decodeURIComponent(u.username) : null,
       };
     } catch {
-      // fall through
     }
   }
   return {

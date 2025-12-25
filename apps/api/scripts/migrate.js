@@ -1,13 +1,10 @@
 #!/usr/bin/env node
-// Lightweight migration runner for PostgreSQL
-// Usage: node apps/api/scripts/migrate.js [up|status]
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Client } = require('pg');
 
-// Minimal .env loader (no dependency on dotenv)
 function loadEnv() {
   const root = path.resolve(__dirname, '../../..');
   const envPath = path.join(root, '.env');
@@ -58,7 +55,6 @@ async function runMigrations(direction = 'up') {
   loadEnv();
   const migrationsDir = process.env.MIGRATIONS_DIR || path.resolve(__dirname, '../db/migrations');
   let connectionString = process.env.DATABASE_URL;
-  // Fallback: build from POSTGRES_* if DATABASE_URL is missing or contains unexpanded templates
   if (!connectionString || /\$\{[^}]+\}/.test(connectionString)) {
     const user = process.env.POSTGRES_USER || 'postgres';
     const password = process.env.POSTGRES_PASSWORD || 'postgres';
@@ -89,7 +85,6 @@ async function runMigrations(direction = 'up') {
   try {
     client = await connectWithRetry();
   } catch (e) {
-    // Helpful local-dev guidance when DB does not exist.
     if (e && e.code === '3D000') {
       console.error(`error: database "${process.env.POSTGRES_DB || 'advanced_file_manager'}" does not exist`);
       console.error('Hint: create it first (local dev): yarn db:create');

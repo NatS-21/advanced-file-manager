@@ -49,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh().finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const value = useMemo<AuthState>(() => ({ me, loading, refresh, login, register, logout }), [me, loading]);

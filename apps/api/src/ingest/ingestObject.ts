@@ -58,7 +58,7 @@ async function insertSidecars(client: PoolClient, assetId: number, md: Extracted
 
 export async function ingestObject(teamId: number, ownerId: number | null, src: SourceObject): Promise<IngestResult> {
   if (!src.localPath) {
-    throw new Error('localPath is required for metadata extraction in MVP');
+    throw new Error('localPath is required for metadata extraction');
   }
 
   const [md, sha256] = await Promise.all([

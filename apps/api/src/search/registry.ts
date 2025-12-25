@@ -8,7 +8,6 @@ type FieldMapping = {
 };
 
 export const fieldRegistry: Record<string, FieldMapping> = {
-  // core
   id: { column: 'a.id', allowedOps: new Set(['eq','in','range']) },
   type: { column: 'a.type', allowedOps: new Set(['eq','in']) },
   title: { column: 'a.title', allowedOps: new Set(['eq','fuzzy','prefix']) },
@@ -21,14 +20,12 @@ export const fieldRegistry: Record<string, FieldMapping> = {
   visibility: { column: 'a.visibility', allowedOps: new Set(['eq','in']) },
   folderId: { column: 'a.folder_id', allowedOps: new Set(['eq','in']) },
 
-  // business
   campaignId: { column: 'ab.campaign_id', join: 'LEFT JOIN asset_business ab ON ab.asset_id = a.id', allowedOps: new Set(['eq','in']) },
   channel: { column: 'ab.channel', join: 'LEFT JOIN asset_business ab ON ab.asset_id = a.id', allowedOps: new Set(['eq','in']) },
   brand: { column: 'ab.brand', join: 'LEFT JOIN asset_business ab ON ab.asset_id = a.id', allowedOps: new Set(['eq','in','fuzzy','prefix']) },
   region: { column: 'ab.region', join: 'LEFT JOIN asset_business ab ON ab.asset_id = a.id', allowedOps: new Set(['eq','in']) },
   language: { column: 'COALESCE(a.language, ab.language)', join: 'LEFT JOIN asset_business ab ON ab.asset_id = a.id', allowedOps: new Set(['eq','in']) },
 
-  // media
   width: { column: 'am.width', join: 'LEFT JOIN asset_media am ON am.asset_id = a.id', allowedOps: new Set(['range']) },
   height: { column: 'am.height', join: 'LEFT JOIN asset_media am ON am.asset_id = a.id', allowedOps: new Set(['range']) },
   orientation: { column: 'am.orientation', join: 'LEFT JOIN asset_media am ON am.asset_id = a.id', allowedOps: new Set(['eq','in']) },
@@ -38,11 +35,9 @@ export const fieldRegistry: Record<string, FieldMapping> = {
   audioCodec: { column: 'am.audio_codec', join: 'LEFT JOIN asset_media am ON am.asset_id = a.id', allowedOps: new Set(['eq','in']) },
   aspectRatio: { column: 'am.aspect_ratio', join: 'LEFT JOIN asset_media am ON am.asset_id = a.id', allowedOps: new Set(['eq','in']) },
 
-  // file (joined in search route as LATERAL af)
   sizeBytes: { column: 'af.size_bytes', allowedOps: new Set(['range']) },
   mimeType: { column: 'af.mime_type', allowedOps: new Set(['eq','in','prefix']) },
 
-  // tags special (requires EXISTS)
   tags: { column: 'tags', allowedOps: new Set(['containsAny','containsAll']) },
 };
 
@@ -94,9 +89,8 @@ export function buildWhere(filters: Filter[] | undefined): BuildResult {
           return `${cfg.column} ILIKE $${params.length}`;
         case 'fuzzy':
           params.push(String(b.value));
-          return `${cfg.column} % $${params.length}`; // pg_trgm similarity
+          return `${cfg.column} % $${params.length}`;
         case 'containsAny': {
-          // tags by names (exists any)
           const values: string[] = Array.isArray(b.value) ? b.value : [];
           if (values.length === 0) return '';
           params.push(values);
@@ -109,7 +103,6 @@ export function buildWhere(filters: Filter[] | undefined): BuildResult {
         case 'containsAll': {
           const values: string[] = Array.isArray(b.value) ? b.value : [];
           if (values.length === 0) return '';
-          // all values present: count distinct match = array_length
           params.push(values);
           return `(
             SELECT COUNT(DISTINCT t.name)
