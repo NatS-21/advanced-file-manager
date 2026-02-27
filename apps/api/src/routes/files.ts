@@ -1,10 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { pool, withTransaction } from '../db/pool';
 import { requireAuth } from '../auth/requireAuth';
+import { requireRole } from '../auth/requireRole';
 import { getStorageDir, resolveObjectPath, storeUploadToLocalFs } from '../storage/local';
 import { ingestAssetMetadata } from '../ingest/ingestAssetMetadata';
 import { createReadStream, promises as fs } from 'fs';
 import path from 'path';
+import { logEventAsync } from '../utils/eventLogger';
+import archiver from 'archiver';
 
 function inferAssetType(mimeType: string): 'image' | 'video' | 'audio' | 'doc' {
   if (mimeType.startsWith('image/')) return 'image';
@@ -16,6 +19,14 @@ function inferAssetType(mimeType: string): 'image' | 'video' | 'audio' | 'doc' {
 function safeFilename(name: string): string {
   const base = (name || 'file').replace(/[\\/\0]/g, '_').slice(0, 180);
   return base || 'file';
+}
+
+/** Возвращает безопасное значение для заголовка Content-Disposition (только ASCII, без управляющих символов) */
+function safeContentDispositionFilename(name: string): string {
+  const base = (name || 'file').replace(/[\\/\0\r\n"]/g, '_').slice(0, 180);
+  // Заменяем не‑ASCII символы на подчеркивание — HTTP‑заголовки должны быть в ASCII
+  const asciiOnly = base.replace(/[^\x20-\x7E]/g, '_');
+  return asciiOnly || 'file';
 }
 
 function parseRange(rangeHeader: string | undefined, size: number): { start: number; end: number } | null {
@@ -110,6 +121,14 @@ export async function registerFileRoutes(app: FastifyInstance) {
             [assetId, stored.objectKey, stored.sizeBytes, mimeType, stored.sha256, originalName]
           );
           const fileId = Number(fileRes.rows[0].id);
+
+          // Автоматически создаём версию 1
+          await client.query(
+            `INSERT INTO asset_versions (asset_id, file_id, version_number, created_by, is_current)
+             VALUES ($1,$2,1,$3,TRUE)`,
+            [assetId, fileId, ownerId]
+          );
+
           return { assetId, fileId };
         });
 
@@ -136,7 +155,7 @@ export async function registerFileRoutes(app: FastifyInstance) {
     return reply.send({ items: results });
   });
 
-  app.get('/api/files/:id/download', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/api/files/:id/download', { preHandler: [requireAuth, requireRole(['viewer', 'uploader', 'editor', 'moderator', 'admin', 'analyst', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });
@@ -161,20 +180,34 @@ export async function registerFileRoutes(app: FastifyInstance) {
       [Number(r.asset_id)]
     );
 
+    // Логируем событие скачивания файла
+    logEventAsync({
+      teamId,
+      userId: req.auth!.userId,
+      assetId: Number(r.asset_id),
+      eventType: 'download',
+      metadata: {
+        assetId: Number(r.asset_id),
+        fileId: id,
+        fileName: r.original_name,
+        fileSize: r.size_bytes,
+      },
+    });
+
     const storageDir = getStorageDir();
     const absPath = resolveObjectPath(storageDir, String(r.object_key));
 
     const stat = await fs.stat(absPath).catch(() => null);
     if (!stat || !stat.isFile()) return reply.code(404).send({ error: 'Файл не найден' });
 
-    const filename = safeFilename(String(r.original_name ?? 'file'));
+    const filename = safeContentDispositionFilename(String(r.original_name ?? 'file'));
     reply.header('Content-Type', r.mime_type ?? 'application/octet-stream');
     reply.header('Content-Length', stat.size);
     reply.header('Content-Disposition', `attachment; filename="${filename}"`);
     return reply.send(createReadStream(absPath));
   });
 
-  app.get('/api/files/:id/preview', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/api/files/:id/preview', { preHandler: [requireAuth, requireRole(['viewer', 'uploader', 'editor', 'moderator', 'admin', 'analyst', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });
@@ -199,13 +232,25 @@ export async function registerFileRoutes(app: FastifyInstance) {
       [Number(r.asset_id)]
     );
 
+    // Логируем событие просмотра файла
+    logEventAsync({
+      teamId,
+      userId: req.auth!.userId,
+      assetId: Number(r.asset_id),
+      eventType: 'view',
+      metadata: {
+        assetId: Number(r.asset_id),
+        fileId: id,
+      },
+    });
+
     const storageDir = getStorageDir();
     const absPath = resolveObjectPath(storageDir, String(r.object_key));
     const stat = await fs.stat(absPath).catch(() => null);
     if (!stat || !stat.isFile()) return reply.code(404).send({ error: 'Файл не найден' });
 
     const mimeType = String(r.mime_type ?? 'application/octet-stream');
-    const filename = safeFilename(String(r.original_name ?? 'file'));
+    const filename = safeContentDispositionFilename(String(r.original_name ?? 'file'));
 
     reply.header('Content-Type', mimeType);
     reply.header('Accept-Ranges', 'bytes');
@@ -221,6 +266,173 @@ export async function registerFileRoutes(app: FastifyInstance) {
 
     reply.header('Content-Length', stat.size);
     return reply.send(createReadStream(absPath));
+  });
+
+  // Массовый экспорт файлов в ZIP‑архив
+  app.post('/api/assets/export', { preHandler: [requireAuth, requireRole(['viewer', 'uploader', 'editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
+    const teamId = req.auth!.teamId;
+    const body = req.body as any;
+    
+    const assetIds = body.assetIds as number[] | undefined;
+    const includeMetadata = body.includeMetadata === true;
+
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return reply.code(400).send({ error: 'Необходимо указать массив assetIds' });
+    }
+
+    // Проверяем, что ID активов являются корректными числами
+    const validAssetIds = assetIds.filter((id) => Number.isFinite(id) && id > 0);
+    if (validAssetIds.length === 0) {
+      return reply.code(400).send({ error: 'Некорректные ID файлов' });
+    }
+
+    // Проверяем, что все активы принадлежат команде пользователя и не удалены
+    const assetsRes = await pool.query(
+      `SELECT a.id, a.title, a.type, a.status, a.description, a.rating, a.visibility, a.keywords,
+              a.created_at, a.updated_at
+       FROM assets a
+       WHERE a.id = ANY($1::bigint[])
+         AND a.team_id = $2
+         AND a.deleted_at IS NULL`,
+      [validAssetIds, teamId]
+    );
+
+    if (assetsRes.rows.length === 0) {
+      return reply.code(404).send({ error: 'Файлы не найдены или недоступны' });
+    }
+
+    // Получаем информацию о файлах для каждого актива (берём последний / активный файл)
+    const filesRes = await pool.query(
+      `SELECT DISTINCT ON (af.asset_id)
+         af.id AS file_id, af.asset_id, af.object_key, af.original_name, af.mime_type, af.size_bytes,
+         a.title AS asset_title
+       FROM asset_files af
+       JOIN assets a ON a.id = af.asset_id
+       WHERE af.asset_id = ANY($1::bigint[])
+         AND a.team_id = $2
+         AND a.deleted_at IS NULL
+       ORDER BY af.asset_id, af.id DESC`,
+      [validAssetIds, teamId]
+    );
+
+    if (filesRes.rows.length === 0) {
+      return reply.code(404).send({ error: 'Файлы не найдены' });
+    }
+
+    // При необходимости подгружаем теги и коллекции для метаданных
+    let tagsMap: Record<number, string[]> = {};
+    let collectionsMap: Record<number, string[]> = {};
+
+    if (includeMetadata) {
+      const tagsRes = await pool.query(
+        `SELECT at.asset_id, t.name
+         FROM asset_tags at
+         JOIN tags t ON t.id = at.tag_id
+         WHERE at.asset_id = ANY($1::bigint[])`,
+        [validAssetIds]
+      );
+      tagsRes.rows.forEach((r: any) => {
+        const assetId = Number(r.asset_id);
+        if (!tagsMap[assetId]) tagsMap[assetId] = [];
+        tagsMap[assetId].push(String(r.name));
+      });
+
+      const collectionsRes = await pool.query(
+        `SELECT ca.asset_id, c.name
+         FROM collection_assets ca
+         JOIN collections c ON c.id = ca.collection_id
+         WHERE ca.asset_id = ANY($1::bigint[])`,
+        [validAssetIds]
+      );
+      collectionsRes.rows.forEach((r: any) => {
+        const assetId = Number(r.asset_id);
+        if (!collectionsMap[assetId]) collectionsMap[assetId] = [];
+        collectionsMap[assetId].push(String(r.name));
+      });
+    }
+
+    // Создаём ZIP‑архив
+    const archive = archiver('zip', {
+      zlib: { level: 9 }, // Максимальная степень сжатия
+    });
+
+    // Устанавливаем заголовки ответа
+    const filename = `assets_export_${new Date().toISOString().split('T')[0]}.zip`;
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // Направляем поток архива напрямую в ответ
+    archive.pipe(reply.raw);
+
+    const storageDir = getStorageDir();
+    const addedFiles = new Set<string>(); // Отслеживаем уже добавленные файлы, чтобы избежать дубликатов
+
+    // Добавляем файлы в архив
+    for (const fileRow of filesRes.rows) {
+      const assetId = Number(fileRow.asset_id);
+      const fileId = Number(fileRow.file_id);
+      const objectKey = String(fileRow.object_key);
+      const originalName = String(fileRow.original_name || `file_${fileId}`);
+      const assetTitle = String(fileRow.asset_title || `Asset ${assetId}`);
+
+      // Пропускаем, если этот актив уже был добавлен (дубликат asset_id)
+      if (addedFiles.has(String(assetId))) continue;
+      addedFiles.add(String(assetId));
+
+      try {
+        // Resolve file path
+        const absPath = resolveObjectPath(storageDir, objectKey);
+        const stat = await fs.stat(absPath).catch(() => null);
+
+        if (!stat || !stat.isFile()) {
+          // Файл не найден: пропускаем, но пишем в лог
+          console.warn(`File not found: ${objectKey}`);
+          continue;
+        }
+
+        // Добавляем файл в архив
+        const safeName = safeFilename(originalName);
+        archive.file(absPath, { name: `files/${safeName}` });
+
+        // Добавляем метаданные, если это запрошено
+        if (includeMetadata) {
+          const asset = assetsRes.rows.find((r: any) => Number(r.id) === assetId);
+          if (asset) {
+            const metadata = {
+              assetId: assetId,
+              title: asset.title || null,
+              type: asset.type || null,
+              status: asset.status || null,
+              description: asset.description || null,
+              rating: asset.rating != null ? Number(asset.rating) : null,
+              visibility: asset.visibility || null,
+              keywords: asset.keywords || [],
+              tags: tagsMap[assetId] || [],
+              collections: collectionsMap[assetId] || [],
+              createdAt: asset.created_at?.toISOString?.() ?? asset.created_at ?? null,
+              updatedAt: asset.updated_at?.toISOString?.() ?? asset.updated_at ?? null,
+              file: {
+                id: fileId,
+                originalName: originalName,
+                mimeType: fileRow.mime_type || null,
+                sizeBytes: Number(fileRow.size_bytes) || 0,
+              },
+            };
+
+            const metadataName = path.parse(safeName).name + '_metadata.json';
+            archive.append(JSON.stringify(metadata, null, 2), { name: `metadata/${metadataName}` });
+          }
+        }
+      } catch (error) {
+          // Ошибка при добавлении файла — пропускаем его
+          console.error(`Error adding file ${objectKey}:`, error);
+        }
+    }
+
+    // Финализируем архив
+    await archive.finalize();
+
+    // Response will be sent when archive is finalized
   });
 }
 

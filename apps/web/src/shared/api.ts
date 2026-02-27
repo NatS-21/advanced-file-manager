@@ -12,10 +12,14 @@ export async function apiJson<T>(input: RequestInfo, init?: RequestInit): Promis
   const res = await fetch(input, {
     credentials: 'include',
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
+    // Проставляем Content-Type только если реально есть тело запроса
+    headers:
+      init?.body === undefined
+        ? init?.headers
+        : {
+            'Content-Type': 'application/json',
+            ...(init?.headers || {}),
+          },
   });
   const text = await res.text();
   const data = text ? safeJsonParse(text) : null;
@@ -33,6 +37,10 @@ export async function apiPost<T>(path: string, body?: any): Promise<T> {
 
 export async function apiPatch<T>(path: string, body?: any): Promise<T> {
   return apiJson<T>(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) });
+}
+
+export async function apiPut<T>(path: string, body?: any): Promise<T> {
+  return apiJson<T>(path, { method: 'PUT', body: JSON.stringify(body ?? {}) });
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {

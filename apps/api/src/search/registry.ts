@@ -39,6 +39,8 @@ export const fieldRegistry: Record<string, FieldMapping> = {
   mimeType: { column: 'af.mime_type', allowedOps: new Set(['eq','in','prefix']) },
 
   tags: { column: 'tags', allowedOps: new Set(['containsAny','containsAll']) },
+  
+  color: { column: 'ac.palette', join: 'LEFT JOIN asset_colors ac ON ac.asset_id = a.id', allowedOps: new Set(['similarTo']) },
 };
 
 export interface BuildResult {
@@ -110,6 +112,83 @@ export function buildWhere(filters: Filter[] | undefined): BuildResult {
             JOIN tags t ON t.id = at.tag_id
             WHERE at.asset_id = a.id AND t.name = ANY($${params.length})
           ) = ${values.length}`;
+        }
+        case 'similarTo': {
+          // Поиск по похожему цвету
+          // Ожидаемый формат значения: { r: number, g: number, b: number, threshold?: number }
+          const colorValue = b.value as { r?: number; g?: number; b?: number; threshold?: number };
+          if (!colorValue || typeof colorValue.r !== 'number' || typeof colorValue.g !== 'number' || typeof colorValue.b !== 'number') {
+            return '';
+          }
+          const threshold = colorValue.threshold ?? 60; // Порог по умолчанию: 60 единиц в RGB‑пространстве
+          params.push(colorValue.r, colorValue.g, colorValue.b, threshold);
+          const paramBase = params.length - 3;
+          // Считаем расстояние между цветами (евклидово расстояние в RGB‑пространстве)
+          // Сравниваем со всеми цветами из палитры
+          return `EXISTS (
+            SELECT 1 FROM asset_colors ac2
+            WHERE ac2.asset_id = a.id
+            AND (
+              -- Check vibrant color
+              (ac2.vibrant_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.vibrant_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.vibrant_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.vibrant_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check muted color
+              (ac2.muted_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.muted_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.muted_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.muted_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check dark vibrant color
+              (ac2.dark_vibrant_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.dark_vibrant_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.dark_vibrant_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.dark_vibrant_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check dark muted color
+              (ac2.dark_muted_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.dark_muted_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.dark_muted_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.dark_muted_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check light vibrant color
+              (ac2.light_vibrant_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.light_vibrant_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.light_vibrant_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.light_vibrant_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check light muted color
+              (ac2.light_muted_rgb IS NOT NULL AND
+               SQRT(
+                 POW(CAST(SPLIT_PART(ac2.light_muted_rgb, ',', 1) AS INT) - $${paramBase}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.light_muted_rgb, ',', 2) AS INT) - $${paramBase + 1}, 2) +
+                 POW(CAST(SPLIT_PART(ac2.light_muted_rgb, ',', 3) AS INT) - $${paramBase + 2}, 2)
+               ) <= $${paramBase + 3})
+              OR
+              -- Check distinct_colors JSONB array
+              (ac2.distinct_colors IS NOT NULL AND ac2.distinct_colors != '[]'::jsonb AND
+               EXISTS (
+                 SELECT 1 FROM jsonb_array_elements(ac2.distinct_colors) AS elem
+                 WHERE SQRT(
+                   POW((elem->>'r')::int - $${paramBase}, 2) +
+                   POW((elem->>'g')::int - $${paramBase + 1}, 2) +
+                   POW((elem->>'b')::int - $${paramBase + 2}, 2)
+                 ) <= $${paramBase + 3}
+               ))
+            )
+          )`;
         }
         default:
           return '';

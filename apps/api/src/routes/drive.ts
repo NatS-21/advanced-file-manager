@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool';
 import { requireAuth } from '../auth/requireAuth';
+import { requireRole } from '../auth/requireRole';
 
 function parseOptionalId(value: unknown): number | null {
   if (value == null || value === '' || value === 'null') return null;
@@ -9,7 +10,7 @@ function parseOptionalId(value: unknown): number | null {
 }
 
 export async function registerDriveRoutes(app: FastifyInstance) {
-  app.get('/api/drive/list', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/api/drive/list', { preHandler: [requireAuth, requireRole(['viewer', 'uploader', 'editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const q = (req.query ?? {}) as any;
     const folderId = parseOptionalId(q.folderId);
@@ -81,7 +82,7 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post('/api/folders', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/folders', { preHandler: [requireAuth, requireRole(['uploader', 'editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const userId = req.auth!.userId;
     const body = (req.body ?? {}) as any;
@@ -120,7 +121,7 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     }
   });
 
-  app.patch('/api/folders/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.patch('/api/folders/:id', { preHandler: [requireAuth, requireRole(['editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     const body = (req.body ?? {}) as any;
@@ -182,7 +183,7 @@ export async function registerDriveRoutes(app: FastifyInstance) {
     }
   });
 
-  app.delete('/api/folders/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/folders/:id', { preHandler: [requireAuth, requireRole(['moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });

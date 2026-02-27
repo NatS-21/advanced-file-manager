@@ -11,7 +11,12 @@ import { registerDriveRoutes } from './routes/drive';
 import { registerFileRoutes } from './routes/files';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerCollectionRoutes } from './routes/collections';
+import { registerTagsRoutes } from './routes/tags';
 import { registerSavedSearchRoutes } from './routes/savedSearches';
+import { registerCommentRoutes } from './routes/comments';
+import { registerEventRoutes } from './routes/events';
+import { registerTeamRoutes } from './routes/team';
+import { registerSettingsRoutes } from './routes/settings';
 import { authPlugin } from './auth/plugin';
 import { registerHealthRoutes } from './routes/health';
 
@@ -51,7 +56,12 @@ export async function buildServer() {
   await registerFileRoutes(app);
   await registerAnalyticsRoutes(app);
   await registerCollectionRoutes(app);
+  await registerTagsRoutes(app);
   await registerSavedSearchRoutes(app);
+  await registerCommentRoutes(app);
+  await registerEventRoutes(app);
+  await registerTeamRoutes(app);
+  await registerSettingsRoutes(app);
   await registerSearchRoute(app);
   await registerAssetRoutes(app);
   return app;

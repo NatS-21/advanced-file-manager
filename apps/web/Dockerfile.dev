@@ -1,0 +1,29 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+RUN (corepack enable && corepack prepare yarn@1.22.22 --activate) || npm i -g yarn@1.22.22
+
+# Copy package files
+COPY package.json yarn.lock ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+# Install all dependencies
+RUN yarn install
+
+# Copy shared package (needed for web)
+COPY packages/shared packages/shared
+
+# Build shared package
+RUN yarn workspace @afm/shared build
+
+# Copy web source (will be overridden by volume in dev mode)
+COPY apps/web apps/web
+
+EXPOSE 5173
+
+# Default command (can be overridden in docker-compose)
+CMD ["yarn", "workspace", "@afm/web", "dev", "--host", "0.0.0.0"]
+

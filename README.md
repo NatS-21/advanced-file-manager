@@ -118,4 +118,27 @@ curl -i http://localhost:3000/api/health
 
 - откройте `http://localhost:8080` в браузере
 - зарегистрируйтесь
-- загрузите файлы в “Библиотеке”
+- загрузите файлы в "Библиотеке"
+
+---
+
+## Режим разработки с Hot Reload
+
+Для разработки с автоматической перезагрузкой при изменении кода используйте `docker-compose.dev.yml`:
+
+```bash
+# Запустить в режиме разработки
+docker-compose -f docker-compose.dev.yml up --build
+
+# Остановить
+docker-compose -f docker-compose.dev.yml down
+```
+
+**Порты в dev режиме:**
+- Frontend (Vite): http://localhost:5173
+- Backend API: http://localhost:3000
+- PostgreSQL: localhost:5435
+
+Изменения в коде автоматически применяются без перезапуска контейнеров.
+
+Подробные инструкции см. в [README.DEV.md](README.DEV.md).

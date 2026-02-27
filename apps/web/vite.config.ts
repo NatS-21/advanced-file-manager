@@ -13,8 +13,12 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: '0.0.0.0', // Allow external connections (needed for Docker)
       port: Number.isFinite(webPort) ? webPort : 5173,
       strictPort: true,
+      watch: {
+        usePolling: true, // Needed for Docker on some systems
+      },
       proxy: {
         '/api': {
           target: apiTarget,

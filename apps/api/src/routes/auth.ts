@@ -121,10 +121,22 @@ export async function registerAuthRoutes(app: FastifyInstance) {
 
   app.get('/api/me', { preHandler: requireAuth }, async (req, reply) => {
     const auth = req.auth!;
-    const { rows } = await pool.query('SELECT id, email, display_name FROM users WHERE id = $1', [auth.userId]);
+    const { rows } = await pool.query(
+      `SELECT u.id, u.email, u.display_name, tm.role
+       FROM users u
+       LEFT JOIN team_members tm ON tm.user_id = u.id AND tm.team_id = $2
+       WHERE u.id = $1`,
+      [auth.userId, auth.teamId]
+    );
     const u = rows[0] as any;
     if (!u) return reply.code(404).send({ error: 'Не найдено' });
-    return reply.send({ id: Number(u.id), email: String(u.email), displayName: u.display_name ?? null, teamId: auth.teamId });
+    return reply.send({
+      id: Number(u.id),
+      email: String(u.email),
+      displayName: u.display_name ?? null,
+      teamId: auth.teamId,
+      role: u.role ? String(u.role) : undefined,
+    });
   });
 }
 

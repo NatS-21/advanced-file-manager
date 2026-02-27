@@ -35,6 +35,13 @@ export interface ExtractedMetadata {
   description?: string;
   keywords?: string[];
   language?: string;
+  // Расширенные метаданные
+  dpi?: number;
+  bitDepth?: number;
+  compression?: string;
+  hasTransparency?: boolean;
+  frameCount?: number;
+  audioChannelsLayout?: string;
 }
 
 export interface IngestResult {

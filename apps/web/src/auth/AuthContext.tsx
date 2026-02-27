@@ -6,6 +6,7 @@ export interface Me {
   email: string;
   displayName: string | null;
   teamId: number;
+  role?: 'viewer' | 'uploader' | 'editor' | 'moderator' | 'admin' | 'analyst' | 'owner';
 }
 
 interface AuthState {

@@ -6,7 +6,7 @@ interface Props {
 
 export function FilterPanel({ children }: Props) {
   return (
-    <aside className="w-72 shrink-0 space-y-4 rounded-md border bg-white p-4">
+    <aside className="w-72 shrink-0 rounded-md border bg-white p-4">
       {children}
     </aside>
   );

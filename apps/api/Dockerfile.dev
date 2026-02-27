@@ -1,0 +1,32 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies
+RUN (corepack enable && corepack prepare yarn@1.22.22 --activate) || npm i -g yarn@1.22.22
+
+# Copy package files and yarn config (network timeout for unstable connections)
+COPY package.json yarn.lock .yarnrc ./
+COPY apps/api/package.json apps/api/package.json
+COPY apps/web/package.json apps/web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+# Install all dependencies (increased timeout and retries for unstable networks)
+ENV YARN_NETWORK_TIMEOUT=300000
+ENV YARN_FETCH_RETRIES=10
+RUN yarn install --network-timeout 300000
+
+# Copy shared package (needed for API)
+COPY packages/shared packages/shared
+
+# Build shared package
+RUN yarn workspace @afm/shared build
+
+# Copy API source (will be overridden by volume in dev mode)
+COPY apps/api apps/api
+
+EXPOSE 3000
+
+# Default command (can be overridden in docker-compose)
+CMD ["yarn", "workspace", "@afm/api", "dev"]
+

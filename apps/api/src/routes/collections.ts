@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { pool } from '../db/pool';
 import { requireAuth } from '../auth/requireAuth';
+import { requireRole } from '../auth/requireRole';
 
 export async function registerCollectionRoutes(app: FastifyInstance) {
-  app.get('/api/collections', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/api/collections', { preHandler: [requireAuth, requireRole(['viewer', 'uploader', 'editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const { rows } = await pool.query(
       `SELECT c.id, c.name, COUNT(ac.asset_id)::bigint AS items
@@ -17,7 +18,7 @@ export async function registerCollectionRoutes(app: FastifyInstance) {
     return reply.send(rows.map((r: any) => ({ id: Number(r.id), name: String(r.name), items: Number(r.items) })));
   });
 
-  app.post('/api/collections', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/collections', { preHandler: [requireAuth, requireRole(['uploader', 'editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const body = (req.body ?? {}) as any;
     const name = String(body.name ?? '').trim();
@@ -29,7 +30,7 @@ export async function registerCollectionRoutes(app: FastifyInstance) {
     return reply.send({ id: Number(rows[0].id), name: String(rows[0].name) });
   });
 
-  app.patch('/api/collections/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.patch('/api/collections/:id', { preHandler: [requireAuth, requireRole(['editor', 'moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     const body = (req.body ?? {}) as any;
@@ -46,7 +47,7 @@ export async function registerCollectionRoutes(app: FastifyInstance) {
     return reply.send({ id: Number(rows[0].id), name: String(rows[0].name) });
   });
 
-  app.delete('/api/collections/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/collections/:id', { preHandler: [requireAuth, requireRole(['moderator', 'admin', 'owner'])], }, async (req, reply) => {
     const teamId = req.auth!.teamId;
     const id = Number((req.params as any).id);
     if (!Number.isFinite(id) || id <= 0) return reply.code(400).send({ error: 'Некорректный id' });

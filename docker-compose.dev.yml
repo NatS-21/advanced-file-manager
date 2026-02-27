@@ -1,0 +1,71 @@
+services:
+  db:
+    image: postgres:16
+    container_name: afm_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-advanced_file_manager}
+    ports:
+      - "${POSTGRES_PORT:-5435}:5432"
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: afm_api_dev
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      STORAGE_DIR: /storage
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+      COOKIE_SECRET: ${COOKIE_SECRET:-change-me}
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-advanced_file_manager}
+      CORS_ORIGIN: http://localhost:5173,http://127.0.0.1:5173
+    volumes:
+      - ./storage:/storage
+      - ./apps/api:/app/apps/api
+      - ./packages/shared:/app/packages/shared
+      - /app/apps/api/node_modules
+      - /app/packages/shared/node_modules
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: yarn workspace @afm/api dev
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    container_name: afm_web_dev
+    restart: unless-stopped
+    environment:
+      VITE_API_TARGET: http://api:3000
+      VITE_PORT: 5173
+    volumes:
+      - ./apps/web:/app/apps/web
+      - ./packages/shared:/app/packages/shared
+      - /app/apps/web/node_modules
+      - /app/packages/shared/node_modules
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    command: yarn workspace @afm/web dev --host 0.0.0.0
+
+volumes:
+  pgdata_dev: {}
+
