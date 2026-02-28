@@ -4,7 +4,7 @@ import { SearchBar } from '../features/search/SearchBar';
 import { SavedSearchModal } from '../features/search/SavedSearchModal';
 import { AdvancedFilters } from '../features/search/AdvancedFilters';
 import { FileThumbnail } from '../shared/FileThumbnail';
-import { apiDelete, apiGet, apiPost } from '../shared/api';
+import { apiDelete, apiGet, apiPost, apiPatch } from '../shared/api';
 import type { Filter } from '@afm/shared/search/dsl';
 
 interface DriveFolder {
@@ -61,6 +61,11 @@ type SavedSearch = {
   name: string;
   request: any;
   createdAt: string;
+};
+
+type DragItem = {
+  kind: 'folder' | 'file';
+  id: number;
 };
 
 type UploadState = 'queued' | 'uploading' | 'done' | 'error';
@@ -147,6 +152,8 @@ export function LibraryPage() {
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
   const [savedSearchesOpen, setSavedSearchesOpen] = useState(false);
   const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
+  const [dragItem, setDragItem] = useState<DragItem | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<number | null>(null);
 
   // Состояние дерева папок внутри текущей папки
   const [folderNodesById, setFolderNodesById] = useState<Record<number, FolderNode>>({});
@@ -195,6 +202,60 @@ export function LibraryPage() {
     if (nextQ) next.set('q', nextQ);
     else next.delete('q');
     setSp(next, { replace: true });
+  }
+
+  function collectDescendantFolderIds(startId: number, acc: Set<number> = new Set()): Set<number> {
+    const node = folderNodesById[startId];
+    if (!node) return acc;
+    for (const childId of node.childrenIds) {
+      if (!acc.has(childId)) {
+        acc.add(childId);
+        collectDescendantFolderIds(childId, acc);
+      }
+    }
+    return acc;
+  }
+
+  function canDropOnFolder(targetId: number | null): boolean {
+    if (!dragItem) return false;
+    // В корень можно перемещать любые элементы
+    if (targetId === null) {
+      if (dragItem.kind === 'folder') {
+        // Нельзя перемещать корень самого в себя, но реальный корень не имеет id
+        return true;
+      }
+      return true;
+    }
+
+    if (dragItem.kind === 'folder') {
+      if (dragItem.id === targetId) return false;
+      const descendants = collectDescendantFolderIds(dragItem.id, new Set());
+      if (descendants.has(targetId)) return false;
+    }
+
+    return true;
+  }
+
+  async function handleDropOnFolder(targetFolderId: number | null) {
+    if (!dragItem) return;
+    try {
+      if (dragItem.kind === 'file') {
+        await apiPatch(`/api/assets/${dragItem.id}`, {
+          folderId: targetFolderId,
+        });
+      } else {
+        await apiPatch(`/api/folders/${dragItem.id}`, {
+          parentId: targetFolderId,
+        });
+      }
+      await load();
+    } catch (e: any) {
+      // eslint-disable-next-line no-alert
+      alert(e?.message || 'Не удалось переместить');
+    } finally {
+      setDragItem(null);
+      setDragOverFolderId(null);
+    }
   }
 
   useEffect(() => {
@@ -345,7 +406,7 @@ export function LibraryPage() {
 
   type DriveRow =
     | { kind: 'folder'; node: FolderNode }
-    | { kind: 'file'; file: DriveFile; depth: number };
+    | { kind: 'file'; file: DriveFile; depth: number; parentFolderId: number | null };
 
   // Построение плоского списка строк (папки + файлы) для отображения в таблице
   const driveRows = useMemo(() => {
@@ -359,7 +420,7 @@ export function LibraryPage() {
         if (expandedFolderIds.has(id)) {
           if (node.files?.length) {
             for (const f of node.files) {
-              rows.push({ kind: 'file', file: f, depth: node.depth + 1 });
+              rows.push({ kind: 'file', file: f, depth: node.depth + 1, parentFolderId: node.id });
             }
           }
           if (node.childrenIds.length > 0) walk(node.childrenIds);
@@ -371,7 +432,10 @@ export function LibraryPage() {
 
     // Файлы текущей папки (как и раньше) показываем после списка папок
     if (list?.files?.length) {
-      for (const f of list.files) rows.push({ kind: 'file', file: f, depth: 0 });
+      const parentId = list.folderId != null ? Number(list.folderId) : null;
+      for (const f of list.files) {
+        rows.push({ kind: 'file', file: f, depth: 0, parentFolderId: parentId });
+      }
     }
 
     return rows;
@@ -724,7 +788,7 @@ export function LibraryPage() {
               </svg>
             </button>
             {savedSearchesOpen && (
-              <div className="absolute right-0 z-50 mt-2 w-72 rounded-md border bg-white shadow-lg">
+              <div className="absolute right-0 z-50 mt-2 w-72 rounded-md border bg-white shadow-xl ring-1 ring-black/5">
                 <div className="border-b px-3 py-2 text-sm font-medium text-gray-700">
                   Сохранённые поиски
                 </div>
@@ -826,6 +890,20 @@ export function LibraryPage() {
                   key={b.id || idx}
                   onClick={() => openFolder(b.id === 0 ? null : b.id)}
                   className="rounded px-2 py-1 hover:bg-gray-100"
+                  onDragOver={(e) => {
+                    if (!dragItem) return;
+                    const targetFolderId = b.id === 0 ? null : b.id;
+                    if (canDropOnFolder(targetFolderId)) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const targetFolderId = b.id === 0 ? null : b.id;
+                    if (!canDropOnFolder(targetFolderId)) return;
+                    void handleDropOnFolder(targetFolderId);
+                  }}
                 >
                   {b.name}
                 </button>
@@ -880,16 +958,71 @@ export function LibraryPage() {
                 <div className="text-right">Размер</div>
                 <div />
               </div>
-              {driveRows.map((row) => {
+              {driveRows.map((row, index) => {
                 if (row.kind === 'folder') {
                   const node = row.node;
                   const isExpanded = expandedFolderIds.has(node.id);
                   // До первой загрузки показываем стрелку всегда; после загрузки скрываем, если папка пуста
                   const canToggle = !node.hasLoadedChildren || node.childrenIds.length > 0 || node.files.length > 0;
+                  const isGroupHighlighted = dragOverFolderId === node.id;
+                  const next = driveRows[index + 1];
+                  const hasHighlightedFiles =
+                    isGroupHighlighted && next && next.kind === 'file' && next.parentFolderId === node.id;
                   return (
                     <div
                       key={`folder-${node.id}`}
-                      className="grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm hover:bg-gray-50"
+                      data-folder-id={node.id}
+                      draggable
+                      onDragStart={(e) => {
+                        setDragItem({ kind: 'folder', id: node.id });
+                        e.dataTransfer.effectAllowed = 'move';
+                      }}
+                      onDragEnd={() => {
+                        setDragItem(null);
+                        setDragOverFolderId(null);
+                      }}
+                      onDragOver={(e) => {
+                        if (!canDropOnFolder(node.id)) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        if (dragOverFolderId !== node.id) {
+                          setDragOverFolderId(node.id);
+                        }
+                      }}
+                      onDragLeave={(e) => {
+                        if (dragOverFolderId !== node.id) return;
+                        const relatedTarget = e.relatedTarget as HTMLElement | null;
+                        if (relatedTarget) {
+                          // Если уходим на файл из этой же папки — не сбрасываем подсветку
+                          const relatedFileRow = relatedTarget.closest('[data-file-id]');
+                          if (relatedFileRow) {
+                            const relatedFileId = relatedFileRow.getAttribute('data-file-id');
+                            const relatedRow = driveRows.find(
+                              (r) => r.kind === 'file' && String(r.file.id) === relatedFileId
+                            );
+                            if (
+                              relatedRow &&
+                              relatedRow.kind === 'file' &&
+                              relatedRow.parentFolderId === node.id
+                            ) {
+                              return;
+                            }
+                          }
+                        }
+                        setDragOverFolderId(null);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (!canDropOnFolder(node.id)) return;
+                        void handleDropOnFolder(node.id);
+                      }}
+                      className={`grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm ${
+                        isGroupHighlighted
+                          ? hasHighlightedFiles
+                            ? 'rounded-t-md border border-b-0 border-blue-400 bg-blue-50'
+                            : 'rounded-md border border-blue-400 bg-blue-50'
+                          : 'rounded-md border border-transparent hover:bg-gray-50'
+                      }`}
                     >
                       <div />
                       <div className="flex items-center">
@@ -936,10 +1069,79 @@ export function LibraryPage() {
                 }
 
                 const f = row.file;
+                const parentFolderId = row.parentFolderId ?? null;
+                const isGroupHighlighted =
+                  dragOverFolderId != null && parentFolderId != null && dragOverFolderId === parentFolderId;
+                const next = driveRows[index + 1];
+                const isLastInGroup =
+                  isGroupHighlighted &&
+                  !(next && next.kind === 'file' && next.parentFolderId === parentFolderId);
                 return (
                   <div
                     key={`file-${f.id}`}
-                    className="grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm hover:bg-gray-50"
+                    data-file-id={f.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDragItem({ kind: 'file', id: f.id });
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      if (parentFolderId == null) return;
+                      if (!canDropOnFolder(parentFolderId)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverFolderId !== parentFolderId) {
+                        setDragOverFolderId(parentFolderId);
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (dragOverFolderId !== parentFolderId) return;
+                      const relatedTarget = e.relatedTarget as HTMLElement | null;
+                      if (relatedTarget) {
+                        // Переход на другой файл той же папки
+                        const relatedFileRow = relatedTarget.closest('[data-file-id]');
+                        if (relatedFileRow) {
+                          const relatedFileId = relatedFileRow.getAttribute('data-file-id');
+                          const relatedFileRowData = driveRows.find(
+                            (r) => r.kind === 'file' && String(r.file.id) === relatedFileId
+                          );
+                          if (
+                            relatedFileRowData &&
+                            relatedFileRowData.kind === 'file' &&
+                            relatedFileRowData.parentFolderId === parentFolderId
+                          ) {
+                            return;
+                          }
+                        }
+                        // Переход обратно на строку папки
+                        const relatedFolderRow = relatedTarget.closest('[data-folder-id]');
+                        if (relatedFolderRow) {
+                          const relatedFolderId = Number(relatedFolderRow.getAttribute('data-folder-id'));
+                          if (relatedFolderId === parentFolderId) {
+                            return;
+                          }
+                        }
+                      }
+                      // Покидаем группу папки целиком — сбрасываем подсветку
+                      setDragOverFolderId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (parentFolderId == null) return;
+                      if (!canDropOnFolder(parentFolderId)) return;
+                      void handleDropOnFolder(parentFolderId);
+                    }}
+                    onDragEnd={() => {
+                      setDragItem(null);
+                      setDragOverFolderId(null);
+                    }}
+                    className={`grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm ${
+                      isGroupHighlighted
+                        ? isLastInGroup
+                          ? 'border border-t-0 border-blue-400 bg-blue-50 rounded-b-md'
+                          : 'border-l border-r border-b-0 border-blue-400 bg-blue-50'
+                        : 'border border-transparent hover:bg-gray-50'
+                    }`}
                   >
                     <div className="flex items-center">
                       <input
@@ -1042,11 +1244,60 @@ export function LibraryPage() {
                 <div className="text-right">Размер</div>
                 <div />
               </div>
-              {search.items.map((it) => (
-                <div
-                  key={it.id}
-                  className="grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm hover:bg-gray-50"
-                >
+              {search.items.map((it) => {
+                const parentFolderId = (it as any).folderId ?? null;
+                return (
+                  <div
+                    key={it.id}
+                    data-file-id={it.id}
+                    draggable
+                    onDragStart={(e) => {
+                      setDragItem({ kind: 'file', id: it.id });
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => {
+                      if (parentFolderId == null) return;
+                      if (!canDropOnFolder(parentFolderId)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      if (dragOverFolderId !== parentFolderId) {
+                        setDragOverFolderId(parentFolderId);
+                      }
+                    }}
+                    onDragLeave={(e) => {
+                      if (dragOverFolderId !== parentFolderId) return;
+                      // Проверяем, не переходим ли мы на другой файл той же папки
+                      const relatedTarget = e.relatedTarget as HTMLElement | null;
+                      if (relatedTarget) {
+                        const relatedRow = relatedTarget.closest('[data-file-id]');
+                        if (relatedRow) {
+                          const relatedFileId = relatedRow.getAttribute('data-file-id');
+                          const relatedFile = search.items.find((item) => String(item.id) === relatedFileId);
+                          if (relatedFile && (relatedFile as any).folderId === parentFolderId) {
+                            // Переходим на другой файл той же папки - не сбрасываем подсветку
+                            return;
+                          }
+                        }
+                      }
+                      // Покидаем группу файлов - сбрасываем подсветку
+                      setDragOverFolderId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (parentFolderId == null) return;
+                      if (!canDropOnFolder(parentFolderId)) return;
+                      void handleDropOnFolder(parentFolderId);
+                    }}
+                    onDragEnd={() => {
+                      setDragItem(null);
+                      setDragOverFolderId(null);
+                    }}
+                    className={`grid grid-cols-[2.5rem_6rem_minmax(0,1fr)_8rem_6rem_1rem] gap-2 px-3 py-2 text-sm rounded-md border ${
+                      dragOverFolderId != null && dragOverFolderId === parentFolderId
+                        ? 'bg-blue-50 border-blue-400'
+                        : 'border-transparent hover:bg-gray-50'
+                    }`}
+                  >
                     <div className="flex items-center">
                       <input
                         type="checkbox"
@@ -1062,10 +1313,11 @@ export function LibraryPage() {
                     <span className="block truncate">{it.title ?? `Файл #${it.id}`}</span>
                   </Link>
                   <div className="truncate text-gray-500">{formatFileType(it.mimeType ?? null, it.type)}</div>
-                  <div className="text-right text-gray-500">{formatBytes(it.sizeBytes ?? null)}</div>
-                  <div />
-                </div>
-              ))}
+                    <div className="text-right text-gray-500">{formatBytes(it.sizeBytes ?? null)}</div>
+                    <div />
+                  </div>
+                );
+              })}
               </div>
             </div>
           </div>
