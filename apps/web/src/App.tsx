@@ -98,7 +98,9 @@ function AppShell() {
       <div className="min-h-screen bg-gray-50 text-gray-900">
         <header className="border-b bg-white">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
-            <div className="font-semibold"><Link to="/">Cloud Drive</Link></div>
+            <div className="font-semibold">
+              <Link to="/">Система управления ассетами</Link>
+            </div>
           </div>
         </header>
         <main className="max-w-7xl mx-auto px-4 py-10">
@@ -142,7 +144,7 @@ function AppShell() {
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between border-b px-4 py-3">
             <Link to="/" className="font-semibold" onClick={() => setSidebarOpen(false)}>
-              Cloud Drive
+              Система управления ассетами
             </Link>
             <button
               onClick={() => setSidebarOpen(false)}
@@ -193,7 +195,7 @@ function AppShell() {
             </svg>
           </button>
           <Link to="/" className="font-semibold" onClick={() => setSidebarOpen(false)}>
-            DAM
+            Система управления ассетами
           </Link>
         </div>
       </header>
