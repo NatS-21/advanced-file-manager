@@ -149,34 +149,84 @@ export function LibraryPage() {
     setDebouncedQ(initialQ);
   }, [initialQ]);
 
-  // При смене списка папок переинициализируем корневые узлы дерева
+  // При смене списка папок строим дерево и рекурсивно загружаем все подпапки,
+  // чтобы по умолчанию всё было развёрнуто
   useEffect(() => {
-    if (!list) {
-      setFolderNodesById({});
-      setRootFolderIds([]);
-      setExpandedFolderIds(new Set());
-      return;
+    let cancelled = false;
+
+    async function buildTree() {
+      if (!list) {
+        setFolderNodesById({});
+        setRootFolderIds([]);
+        setExpandedFolderIds(new Set());
+        return;
+      }
+
+      const nodes: Record<number, FolderNode> = {};
+      const expanded = new Set<number>();
+
+      // Очередь для обхода в ширину: начинаем с корневых папок
+      const queue: Array<{ folder: DriveFolder; depth: number; parentId: number | null }> = list.folders.map(
+        (f) => ({
+          folder: f,
+          depth: 0,
+          parentId: f.parentId ?? activeFolderId,
+        })
+      );
+
+      while (queue.length && !cancelled) {
+        const { folder, depth, parentId } = queue.shift()!;
+        if (nodes[folder.id]) continue;
+
+        expanded.add(folder.id);
+
+        let children: DriveFolder[] = [];
+        let files: DriveFile[] = [];
+
+        try {
+          const resp = await apiGet<DriveListResponse>(`/api/drive/list?folderId=${folder.id}`);
+          children = resp.folders ?? [];
+          files = resp.files ?? [];
+        } catch {
+          // Если не удалось загрузить подпапки — считаем, что их нет
+          children = [];
+          files = [];
+        }
+
+        const childIds = children.map((c) => c.id);
+
+        nodes[folder.id] = {
+          id: folder.id,
+          parentId,
+          name: folder.name,
+          depth,
+          childrenIds: childIds,
+          isLoading: false,
+          hasLoadedChildren: true,
+          files,
+        };
+
+        for (const child of children) {
+          queue.push({
+            folder: child,
+            depth: depth + 1,
+            parentId: child.parentId ?? folder.id,
+          });
+        }
+      }
+
+      if (!cancelled) {
+        setFolderNodesById(nodes);
+        setRootFolderIds(list.folders.map((f) => f.id));
+        setExpandedFolderIds(expanded);
+      }
     }
 
-    const nextNodes: Record<number, FolderNode> = {};
-    const nextRootIds: number[] = [];
-    for (const f of list.folders) {
-      nextNodes[f.id] = {
-        id: f.id,
-        parentId: f.parentId ?? activeFolderId,
-        name: f.name,
-        depth: 0,
-        childrenIds: [],
-        isLoading: false,
-        hasLoadedChildren: false,
-        files: [],
-      };
-      nextRootIds.push(f.id);
-    }
+    void buildTree();
 
-    setFolderNodesById(nextNodes);
-    setRootFolderIds(nextRootIds);
-    setExpandedFolderIds(new Set());
+    return () => {
+      cancelled = true;
+    };
   }, [list, activeFolderId]);
 
   // Загружаем пользовательские настройки для видимости полей фильтров
