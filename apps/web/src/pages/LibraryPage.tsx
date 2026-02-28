@@ -168,6 +168,9 @@ export function LibraryPage() {
     const savedRequest = state?.savedSearchRequest;
     if (!savedRequest) return;
 
+    // Очищаем state после применения, чтобы не применять повторно при обновлении страницы
+    window.history.replaceState({ ...state, savedSearchRequest: undefined }, '');
+
     const nextQ = String(savedRequest.q ?? '').trim();
     setQ(nextQ);
     setDebouncedQ(nextQ);
@@ -631,6 +634,10 @@ export function LibraryPage() {
       perPage: 50,
     };
     await apiPost('/api/saved-searches', { name, request });
+    // Обновляем список сохранённых поисков в выпадающем меню
+    if (!savedSearchesLoading) {
+      await loadSavedSearches();
+    }
   }
 
   function submitSearch() {

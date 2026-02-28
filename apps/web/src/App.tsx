@@ -96,7 +96,7 @@ function AppShell() {
   if (!me) {
     return (
       <div className="min-h-screen bg-gray-50 text-gray-900">
-        <header className="border-b bg-white">
+        <header className="sticky top-0 z-40 border-b bg-white/95 backdrop-blur">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
             <div className="font-semibold">
               <Link to="/">Система управления ассетами</Link>
@@ -183,7 +183,7 @@ function AppShell() {
       </aside>
 
       {/* Header */}
-      <header className="border-b bg-white">
+      <header className="sticky top-0 z-30 border-b bg-white/95 backdrop-blur">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
           <button
             onClick={() => setSidebarOpen(true)}

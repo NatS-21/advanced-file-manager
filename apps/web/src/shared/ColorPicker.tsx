@@ -79,17 +79,26 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
         </div>
       </div>
       {currentRgb && (
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-600">Порог сходства:</label>
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-gray-600">Порог сходства:</label>
+            <span className="text-xs font-medium text-gray-700">{threshold}</span>
+          </div>
           <input
-            type="number"
+            type="range"
             min="0"
             max="255"
             value={threshold}
             onChange={(e) => handleThresholdChange(Number(e.target.value))}
-            className="w-20 rounded-md border px-2 py-1 text-sm"
+            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
+            style={{
+              background: `linear-gradient(to right, #000000 0%, #000000 ${(threshold / 255) * 100}%, #e5e7eb ${(threshold / 255) * 100}%, #e5e7eb 100%)`
+            }}
           />
-          <span className="text-xs text-gray-500">(0-255)</span>
+          <div className="flex items-center justify-between text-xs text-gray-400">
+            <span>0</span>
+            <span>255</span>
+          </div>
         </div>
       )}
       {currentRgb && (
