@@ -39,7 +39,8 @@ export function SavedSearchesPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Link
-                  to={`/?q=${encodeURIComponent(String(s.request?.q ?? ''))}`}
+                  to="/"
+                  state={{ savedSearchRequest: s.request }}
                   className="rounded-md border bg-white px-2 py-1 text-xs hover:bg-gray-50"
                 >
                   Применить

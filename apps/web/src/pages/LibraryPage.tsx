@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { SearchBar } from '../features/search/SearchBar';
 import { SavedSearchModal } from '../features/search/SavedSearchModal';
 import { AdvancedFilters } from '../features/search/AdvancedFilters';
@@ -55,6 +55,13 @@ interface SearchResponse {
   }>;
   total: number;
 }
+
+type SavedSearch = {
+  id: number;
+  name: string;
+  request: any;
+  createdAt: string;
+};
 
 type UploadState = 'queued' | 'uploading' | 'done' | 'error';
 
@@ -117,6 +124,7 @@ function formatFileType(mimeType: string | null, type?: 'image' | 'video' | 'aud
 }
 
 export function LibraryPage() {
+  const location = useLocation();
   const [sp, setSp] = useSearchParams();
   const folderId = sp.get('folderId');
   const activeFolderId = folderId ? Number(folderId) : null;
@@ -136,6 +144,9 @@ export function LibraryPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<Filter[]>([]);
   const [filterVisibleFields, setFilterVisibleFields] = useState<string[] | undefined>(undefined);
+  const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([]);
+  const [savedSearchesOpen, setSavedSearchesOpen] = useState(false);
+  const [savedSearchesLoading, setSavedSearchesLoading] = useState(false);
 
   // Состояние дерева папок внутри текущей папки
   const [folderNodesById, setFolderNodesById] = useState<Record<number, FolderNode>>({});
@@ -143,6 +154,48 @@ export function LibraryPage() {
   const [expandedFolderIds, setExpandedFolderIds] = useState<Set<number>>(new Set());
 
   const inSearchMode = debouncedQ.trim() !== '' || activeFilters.length > 0;
+
+  // Если пришёл сохранённый поиск — применяем q и фильтры из сохранённого запроса
+  useEffect(() => {
+    const state = location.state as any;
+    const savedRequest = state?.savedSearchRequest;
+    if (!savedRequest) return;
+
+    const nextQ = String(savedRequest.q ?? '').trim();
+    setQ(nextQ);
+    setDebouncedQ(nextQ);
+
+    const filtersFromSaved: Filter[] = Array.isArray(savedRequest.filters) ? savedRequest.filters : [];
+    setActiveFilters(filtersFromSaved);
+
+    const next = new URLSearchParams(sp);
+    if (nextQ) next.set('q', nextQ);
+    else next.delete('q');
+    setSp(next, { replace: true });
+  }, [location.state, sp, setSp]);
+
+  async function loadSavedSearches() {
+    setSavedSearchesLoading(true);
+    try {
+      const data = await apiGet<Array<SavedSearch>>('/api/saved-searches');
+      setSavedSearches(data);
+    } finally {
+      setSavedSearchesLoading(false);
+    }
+  }
+
+  function applySavedSearch(request: any) {
+    const nextQ = String(request?.q ?? '').trim();
+    setQ(nextQ);
+    setDebouncedQ(nextQ);
+    const filtersFromSaved: Filter[] = Array.isArray(request?.filters) ? request.filters : [];
+    setActiveFilters(filtersFromSaved);
+
+    const next = new URLSearchParams(sp);
+    if (nextQ) next.set('q', nextQ);
+    else next.delete('q');
+    setSp(next, { replace: true });
+  }
 
   useEffect(() => {
     setQ(initialQ);
@@ -636,24 +689,76 @@ export function LibraryPage() {
         <div className="flex-1">
           <SearchBar value={q} onChange={setQ} onSearch={submitSearch} placeholder="Поиск по файлам и метаданным…" />
                       </div>
-        <div className="relative shrink-0">
-                <button
-            onClick={() => setFiltersOpen(true)}
-            className={`rounded-md border p-2 hover:bg-gray-50 ${
-              activeFilters.length > 0 ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white text-gray-600'
-            }`}
-            title="Фильтры"
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-            {activeFilters.length > 0 && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">
-                {activeFilters.length}
-              </span>
-            )}
-                </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <div className="relative">
+            <button
+              onClick={() => setFiltersOpen(true)}
+              className={`rounded-md border p-2 hover:bg-gray-50 ${
+                activeFilters.length > 0 ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white text-gray-600'
+              }`}
+              title="Фильтры"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              {activeFilters.length > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] text-white">
+                  {activeFilters.length}
+                </span>
+              )}
+            </button>
+          </div>
+          <div className="relative">
+            <button
+              onClick={async () => {
+                if (!savedSearchesOpen && savedSearches.length === 0 && !savedSearchesLoading) {
+                  await loadSavedSearches();
+                }
+                setSavedSearchesOpen((prev) => !prev);
+              }}
+              className="rounded-md border p-2 bg-white text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              title="Сохранённые поиски"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h7l5 5v11a2 2 0 01-2 2H7a2 2 0 01-2-2V5z" />
+              </svg>
+            </button>
+            {savedSearchesOpen && (
+              <div className="absolute right-0 z-50 mt-2 w-72 rounded-md border bg-white shadow-lg">
+                <div className="border-b px-3 py-2 text-sm font-medium text-gray-700">
+                  Сохранённые поиски
+                </div>
+                <div className="max-h-80 overflow-y-auto px-3 py-2 text-sm">
+                  {savedSearchesLoading ? (
+                    <div className="text-gray-500">Загрузка…</div>
+                  ) : savedSearches.length === 0 ? (
+                    <div className="text-gray-500">Пока нет сохранённых поисков</div>
+                  ) : (
+                    <ul className="space-y-1">
+                      {savedSearches.map((s) => (
+                        <li key={s.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              applySavedSearch(s.request);
+                              setSavedSearchesOpen(false);
+                            }}
+                            className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left hover:bg-gray-50"
+                          >
+                            <span className="truncate">{s.name}</span>
+                            <span className="ml-2 text-[10px] text-gray-400">
+                              {String(s.request?.q ?? '').slice(0, 20)}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
+            )}
+          </div>
+        </div>
           {inSearchMode && (
             <button
               onClick={() => setSaveModalOpen(true)}
